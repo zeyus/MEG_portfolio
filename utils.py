@@ -3,7 +3,7 @@ import mne
 import numpy as np
 from pathlib import Path
 
-def preprocess_data_sensorspace(fif_path:Path, bad_channels:list, reject = None, ica_path:Path = None, noise_components = None, event_ids = None):
+def preprocess_data_sensorspace(fif_path:Path, bad_channels:list, reject = None, ica_path:Path = None, noise_components = None, event_ids = None, n_jobs = 4):
     """
     
     Parameters
@@ -30,7 +30,7 @@ def preprocess_data_sensorspace(fif_path:Path, bad_channels:list, reject = None,
 
 
     # Low pass filtering to get rid of line noise
-    raw.filter(0.1, 40, n_jobs = 4)
+    raw.filter(0.1, 40, n_jobs = n_jobs)
 
     if ica_path:
         ica = mne.preprocessing.read_ica(ica_path)
@@ -51,12 +51,12 @@ def preprocess_data_sensorspace(fif_path:Path, bad_channels:list, reject = None,
     epochs = mne.Epochs(raw, events, event_id = event_ids, tmin=-0.2, tmax=1, baseline=(None, 0), preload = True, reject = reject, proj = True)
 
     # downsampling
-    epochs.resample(250)
+    epochs.resample(250, n_jobs = n_jobs)
     
     return epochs
 
 
-def epochs_to_sourcespace(epochs, fwd,  pick_ori='normal', lambda2=1.0 / 9.0, method='dSPM', label=None):
+def epochs_to_sourcespace(epochs, fwd,  pick_ori='normal', lambda2=1.0 / 9.0, method='dSPM', label=None, n_jobs = 4):
     """
     Parameters
     ----------
@@ -78,7 +78,7 @@ def epochs_to_sourcespace(epochs, fwd,  pick_ori='normal', lambda2=1.0 / 9.0, me
     stcs : list
         List of source time courses.
     """
-    noise_cov = mne.compute_covariance(epochs, tmax=0.000)
+    noise_cov = mne.compute_covariance(epochs, tmax=0.000, n_jobs=n_jobs)
     
     inv = mne.minimum_norm.make_inverse_operator(epochs.info, fwd, noise_cov)
 
@@ -109,8 +109,8 @@ def morph_stcs_label(morph_path:Path, stcs:list, fs_subjects_dir:Path, label_reg
     # morph from subject to fsaverage
     stcs = [morph.apply(stc) for stc in stcs]
 
-    label = mne.read_labels_from_annot("fsaverage", parc="aparc", subjects_dir=fs_subjects_dir, regexp=label_regexp)[0]
-    vertices = label.get_vertices_used(stcs[0].vertices[0]) # get sources from the data that are within the label
+    labels = mne.read_labels_from_annot("fsaverage", parc="aparc", subjects_dir=fs_subjects_dir, regexp=label_regexp)
+    vertices = np.concatenate([label.get_vertices_used(stcs[0].vertices[0]) for label in labels])
             
     X = np.array([stc.data[vertices, :] for stc in stcs])
 
