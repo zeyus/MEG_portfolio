@@ -199,41 +199,95 @@ if __name__ in "__main__":
 
     data_path = Path('/work/807746/study_group_8') / "data"
     outpath = Path('/work/807746/study_group_8') / "results"
+    trig_pairs = [(11, 12), (21, 22), (11, 21), (12, 22)]
+    labels = [
+        # 'bankssts',
+        # 'caudalanteriorcingulate',
+        # 'caudalmiddlefrontal',
+        # 'cuneus',
+        # 'entorhinal',
+        # 'frontalpole',
+        # 'fusiform',
+        # 'inferiorparietal',
+        # 'inferiortemporal',
+        # 'insula',
+        # 'isthmuscingulate',
+        # 'lateraloccipital',
+        # 'lateralorbitofrontal',
+        # 'lingual',
+        # 'medialorbitofrontal',
 
-    # create output directory if it doesn't exist
-    if not outpath.exists():
-        outpath.mkdir()
-    
-    subjects = ["0108", "0109", "0110", "0111", "0112", "0113", "0114", "0115"]
-    label = 'superiorfrontal-lh_superiorfrontal-rh'    
-
-    # read in data for all subjects
-    Xs = []
-    ys = []
-
-    for i, subject in enumerate(subjects):
-        X, y = read_data(data_path, subject, x_file=f"X_{label}.npy", y_file=f"y_{label}.npy")
-
-        # only keep data from certain triggers and convert y to zero and ones
-        X, y = keep_triggers(X, y, zero = [11], one = [12])
-
-        if i != 0:
-            X = flip_sign(Xs[0], X)
-
-        Xs.append(X)
-        ys.append(y)
-
-    # run decoding
-    decoder = make_pipeline(StandardScaler(), naive_bayes.GaussianNB())
-
-    # run across subject decoding
-    results = across_subject(decoder, Xs, ys)
-    # save results
-    np.save(outpath / f"across_subjects_11_202_{label}.npy", results)
+        # # ...
+        # 'superiorfrontal-lh_superiorfrontal',
+        # 'middletemporal',
+        # 'paracentral',
+        # 'parahippocampal',
+        'parsopercularis',
+        'parsorbitalis',
+        'parstriangularis',
+        'pericalcarine',
+        'postcentral',
+        'posteriorcingulate',
+        'precentral',
+        'precuneus',
+        'rostralanteriorcingulate',
+        'rostralmiddlefrontal',
+        'superiorfrontal',
+        'superiorparietal',
+        'superiortemporal',
+        'supramarginal',
+        'temporalpole',
+        'transversetemporal',
 
 
-    # run within subject decoding
-    for i, (X, y) in tqdm(enumerate(zip(Xs, ys))):
-        results = within_subject(decoder, X, y, ncv = 5)
-        np.save(outpath / f"within_subject_{i+1}_11_202_{label}.npy", results)
+    ]
+    label_suffixes = ['-lh', '-rh']
+
+    for lbl in labels:
+        for lbl_suff in label_suffixes:
+            if lbl == "superiorfrontal-lh_superiorfrontal" and lbl_suff == "-lh":
+                continue
+            label = lbl + lbl_suff
+            for trig_1, trig_2 in trig_pairs:
+                trig_1 = [trig_1]
+                trig_2 = [trig_2]
+
+                trig_1_str = '-'.join([str(elem) for elem in trig_1])
+                trig_2_str = '-'.join([str(elem) for elem in trig_2])
+
+                # create output directory if it doesn't exist
+                if not outpath.exists():
+                    outpath.mkdir()
+                
+                subjects = ["0108", "0109", "0110", "0111", "0112", "0113", "0114", "0115"] 
+
+                # read in data for all subjects
+                Xs = []
+                ys = []
+
+                for i, subject in enumerate(subjects):
+                    X, y = read_data(data_path, subject, x_file=f"X_{label}.npy", y_file=f"y_{label}.npy")
+
+                    # only keep data from certain triggers and convert y to zero and ones
+                    X, y = keep_triggers(X, y, zero = trig_1, one = trig_2)
+
+                    if i != 0:
+                        X = flip_sign(Xs[0], X)
+
+                    Xs.append(X)
+                    ys.append(y)
+
+                # run decoding
+                decoder = make_pipeline(StandardScaler(), naive_bayes.GaussianNB())
+
+                # run across subject decoding
+                results = across_subject(decoder, Xs, ys)
+                # save results
+                np.save(outpath / f"across_subjects_{trig_1_str}_{trig_2_str}_{label}.npy", results)
+
+
+                # run within subject decoding
+                for i, (X, y) in tqdm(enumerate(zip(Xs, ys))):
+                    results = within_subject(decoder, X, y, ncv = 5)
+                    np.save(outpath / f"within_subject_{i+1}_{trig_1_str}_{trig_2_str}_{label}.npy", results)
     
