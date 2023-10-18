@@ -1,11 +1,21 @@
-
 import mne
 import numpy as np
 from pathlib import Path
 
-def preprocess_data_sensorspace(fif_path:Path, bad_channels:list, reject = None, ica_path:Path = None, noise_components = None, event_ids = None, n_jobs = 4):
+
+def preprocess_data_sensorspace(
+    fif_path: Path,
+    bad_channels: list,
+    reject=None,
+    ica_path: Path = None,
+    noise_components=None,
+    event_ids=None,
+    n_jobs=4,
+    t_min=-.2,
+    t_max=2.0,
+):
     """
-    
+
     Parameters
     ----------
     fif_path : Path
@@ -20,17 +30,16 @@ def preprocess_data_sensorspace(fif_path:Path, bad_channels:list, reject = None,
         List of noise ICA components. The default is None.
     event_ids: dict, optional
         Dictionary with event ids and triggers to include in the epochs. Default is None
-    
+
     Returns
     -------
     epochs : mne.Epochs
         Epochs object.
     """
-    raw = mne.io.read_raw_fif(fif_path, preload = True)
-
+    raw = mne.io.read_raw_fif(fif_path, preload=True)
 
     # Low pass filtering to get rid of line noise
-    raw.filter(0.1, 40, n_jobs = n_jobs)
+    raw.filter(0.1, 40, n_jobs=n_jobs)
 
     if ica_path:
         ica = mne.preprocessing.read_ica(ica_path)
@@ -42,21 +51,39 @@ def preprocess_data_sensorspace(fif_path:Path, bad_channels:list, reject = None,
         ica.apply(raw)
 
     # find the events
-    events = mne.find_events(raw, min_duration=2/raw.info["sfreq"])
+    events = mne.find_events(raw, min_duration=2 / raw.info["sfreq"])
 
     # remove bad channels
     raw.drop_channels(bad_channels)
 
     # epoching
-    epochs = mne.Epochs(raw, events, event_id = event_ids, tmin=-0.2, tmax=1, baseline=(None, 0), preload = True, reject = reject, proj = True)
+    epochs = mne.Epochs(
+        raw,
+        events,
+        event_id=event_ids,
+        tmin=t_min,
+        tmax=t_max,
+        baseline=(None, 0),
+        preload=True,
+        reject=reject,
+        proj=True,
+    )
 
     # downsampling
-    epochs.resample(250, n_jobs = n_jobs)
-    
+    epochs.resample(250, n_jobs=n_jobs)
+
     return epochs
 
 
-def epochs_to_sourcespace(epochs, fwd,  pick_ori='normal', lambda2=1.0 / 9.0, method='dSPM', label=None, n_jobs = 4):
+def epochs_to_sourcespace(
+    epochs,
+    fwd,
+    pick_ori="normal",
+    lambda2=1.0 / 9.0,
+    method="dSPM",
+    label=None,
+    n_jobs=4,
+):
     """
     Parameters
     ----------
@@ -72,21 +99,29 @@ def epochs_to_sourcespace(epochs, fwd,  pick_ori='normal', lambda2=1.0 / 9.0, me
         Inverse method. The default is 'dSPM'.
     label : mne.Label, optional
         Label to restrict the inverse solution to. The default is None.
-    
+
     Returns
     -------
     stcs : list
         List of source time courses.
     """
     noise_cov = mne.compute_covariance(epochs, tmax=0.000, n_jobs=n_jobs)
-    
+
     inv = mne.minimum_norm.make_inverse_operator(epochs.info, fwd, noise_cov)
 
-    stcs = mne.minimum_norm.apply_inverse_epochs(epochs, inv, lambda2, method, label, pick_ori=pick_ori)
-    
+    stcs = mne.minimum_norm.apply_inverse_epochs(
+        epochs, inv, lambda2, method, label, pick_ori=pick_ori
+    )
+
     return stcs
 
-def morph_stcs_label(morph_path:Path, stcs:list, fs_subjects_dir:Path, label_regexp:str = 'parsopercularis-lh'):
+
+def morph_stcs_label(
+    morph_path: Path,
+    stcs: list,
+    fs_subjects_dir: Path,
+    label_regexp: str = "parsopercularis-lh",
+):
     """
     Parameters
     ----------
@@ -98,23 +133,28 @@ def morph_stcs_label(morph_path:Path, stcs:list, fs_subjects_dir:Path, label_reg
         Path to the freesurfer subjects directory.
     label_regexp : str, optional
         Regular expression to select the label. The default is 'parsopercularis-lh'.
-    
+
     Returns
     -------
     X : np.array
         Array with source time courses.
     """
     morph = mne.read_source_morph(morph_path)
-            
+
     # morph from subject to fsaverage
     stcs = [morph.apply(stc) for stc in stcs]
 
-    labels = mne.read_labels_from_annot("fsaverage", parc="aparc", subjects_dir=fs_subjects_dir, regexp=label_regexp)
-    vertices = np.concatenate([label.get_vertices_used(stcs[0].vertices[0]) for label in labels])
-            
+    labels = mne.read_labels_from_annot(
+        "fsaverage", parc="aparc", subjects_dir=fs_subjects_dir, regexp=label_regexp
+    )
+    vertices = np.concatenate(
+        [label.get_vertices_used(stcs[0].vertices[0]) for label in labels]
+    )
+
     X = np.array([stc.data[vertices, :] for stc in stcs])
 
     return X
+
 
 def flip_sign(X1, X2):
     """
@@ -122,35 +162,37 @@ def flip_sign(X1, X2):
 
     Parameters
     ----------
-    X1 (array): 
+    X1 (array):
         Data from the session to compare to with shape (n_trials, n_channels, n_times)
-        
-    X2 (array): 
+
+    X2 (array):
         Data from the session to flip the sign of with shape (n_trials, n_channels, n_times)
 
     Returns
     -------
-    X2 (ndarray): 
+    X2 (ndarray):
         X2 with the sign flipped if the correlation between X1 and X2 is negative in the given parcel with shape (n_channels, n_trials, n_times)
     """
 
     # checking that the T and P dimensions are the same
     if X1.shape[2] != X2.shape[2]:
-        raise ValueError('The number of time points in the two sessions are not the same')
-    
+        raise ValueError(
+            "The number of time points in the two sessions are not the same"
+        )
+
     if X1.shape[1] != X2.shape[1]:
-        raise ValueError('The number of parcels in the two sessions are not the same')
+        raise ValueError("The number of parcels in the two sessions are not the same")
 
     # loop over parcels
     for i in range(X1.shape[1]):
         # take means over trials
-        mean1 = np.mean(X1[:, i, :], axis = 0)
-        mean2 = np.mean(X2[:, i, :], axis = 0)
+        mean1 = np.mean(X1[:, i, :], axis=0)
+        mean2 = np.mean(X2[:, i, :], axis=0)
 
         # calculate correlation
         corr = np.corrcoef(mean1, mean2)[0, 1]
 
-        if corr < 0: # if correlation is negative, flip sign
+        if corr < 0:  # if correlation is negative, flip sign
             X2[:, i, :] = X2[:, i, :] * -1
 
     return X2
